@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the accompanying paper."
+title: "MACE: Modular Algorithm Construction and Evolution for Combinatorial Optimization"
+authors:
+  - family-names: "<TODO>"
+    given-names: "<TODO>"
+abstract: >-
+  MACE is a framework that decomposes automated heuristic design for
+  combinatorial optimization into an input schema, output schema, tool library,
+  and heuristic portfolio (the I-O-T-H interface), and refines the portfolio
+  through time-constrained complementary evolution.
+keywords:
+  - combinatorial optimization
+  - large language models
+  - heuristic design
+  - automated algorithm design
+license: MIT
+preferred-citation:
+  type: article
+  title: "Large Language Models Discover Complementary Heuristics for Combinatorial Optimization"
+  authors:
+    - family-names: "<TODO>"
+      given-names: "<TODO>"
+  year: 2026

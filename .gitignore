@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Secrets
+.env
+
+# MACE run outputs
+runs/
+_hf_tmp/
+
+# Large artifacts (data ships per-problem under problems/<slug>/instances)
+*.npy
+*.xlsx
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

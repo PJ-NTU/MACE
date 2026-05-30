@@ -1,0 +1,27 @@
+# PSP train | 20_2_3_T12 seed=10
+# n=20 J=2 K=3 T=12 H_max=2
+
+vessel_num = 20
+berth_num = 2
+tugboat_num = 3
+time_periods = 12
+vessel_sizes = [4, 5, 3, 5, 5, 2, 4, 4, 3, 3, 3, 3, 1, 4, 2, 4, 3, 4, 4, 5]
+vessel_etas = [1, 1, 1, 1, 2, 2, 2, 3, 5, 5, 6, 6, 6, 7, 7, 8, 9, 9, 9, 10]
+vessel_durations = [1, 2, 2, 1, 2, 1, 2, 2, 2, 2, 1, 2, 1, 1, 1, 2, 1, 2, 1, 1]
+vessel_inbound_service_times = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+vessel_outbound_service_times = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+vessel_priority_weights = [2.26, 1.98, 2.28, 2.85, 2.23, 2.78, 2.3, 2.86, 2.57, 2.09, 2.62, 2.22, 1.36, 2.66, 1.63, 2.29, 2.61, 2.0, 2.09, 2.5]
+vessel_waiting_costs = [58.2, 52.8, 31.9, 57.1, 41.7, 20.8, 58.2, 52.1, 35.9, 38.3, 36.3, 29.0, 20.9, 44.8, 22.5, 41.1, 29.0, 51.4, 58.3, 51.9]
+vessel_jit_costs = [22.2, 19.5, 15.4, 23.8, 17.0, 9.2, 19.4, 20.0, 15.0, 13.8, 15.6, 11.0, 8.8, 16.2, 10.4, 17.0, 11.1, 25.5, 26.9, 19.6]
+vessel_horsepower_requirements = [3946, 5403, 2852, 4956, 5799, 1530, 4508, 3602, 2346, 2791, 3038, 3052, 862, 3582, 1517, 3563, 2769, 3637, 3809, 4941]
+vessel_early_limits = [1, 1, 1, 1, 2, 2, 1, 1, 2, 1, 2, 2, 1, 1, 1, 2, 1, 2, 2, 1]
+vessel_late_limits = [1, 1, 1, 1, 2, 1, 2, 2, 1, 2, 2, 1, 2, 2, 2, 1, 2, 2, 2, 2]
+berth_capacities = [5, 4]
+tugboat_horsepower = [3868, 3055, 998]
+tugboat_costs = [78.7, 71.8, 30.0]
+inbound_preparation_time = 1
+outbound_preparation_time = 1
+max_tugboats_per_service = 2
+time_constraint_tolerance = 2
+penalty_parameter = 3300.0
+objective_weights = [0.111, 0.1324, 0.5715, 0.185]

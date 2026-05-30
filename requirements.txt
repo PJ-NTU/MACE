@@ -1,0 +1,9 @@
+# Core MACE runtime
+numpy>=1.24
+mip>=1.15          # python-mip; complementary selection + per-problem MILP tools (uses bundled CBC)
+scipy>=1.10
+networkx>=3.0      # maximal_independent_set instance loading
+openai>=1.0        # LLM client (OpenRouter, OpenAI-compatible API)
+
+# Optional
+# gurobipy         # mip auto-uses Gurobi if installed; otherwise falls back to CBC
