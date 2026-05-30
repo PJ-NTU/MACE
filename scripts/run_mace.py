@@ -39,7 +39,7 @@ except Exception:
 from mace.evolution.llm_client import OpenRouterClient
 from mace.evolution.initial_generation import build_initial_portfolio
 from mace.evolution.evolve import evolve, evaluate_portfolio, evaluate_on_test
-from mace.evolution.cpi import compute_cpi, PENALTY
+from mace.evolution.cpi import PENALTY
 from mace.evolution.smoke_test import smoke_test
 from mace.evolution.operators import _bootstrap_random as o5_random_restart
 from mace.evolution.operators import o6_error_repair
@@ -130,7 +130,7 @@ def _build_all_o5_portfolio(spec, llm, N, smoke_path, smoke_tl, I_rep, log, spec
             passed, err = smoke_test(code, spec, smoke_path, smoke_tl, **smoke_kwargs)
         if passed:
             portfolio.append(code)
-            log.info("O5 slot %d added (repairs=%d)", len(portfolio), repairs)
+            log.info("  generated initial heuristic %d/%d", len(portfolio), N)
     return portfolio
 
 
@@ -161,6 +161,9 @@ def main():
                         format="%(asctime)s %(levelname)-7s %(name)s :: %(message)s",
                         stream=sys.stdout)
     log = logging.getLogger("run_mace")
+    # keep the console focused: silence HTTP traffic and per-iteration internals
+    for _noisy in ("httpx", "openai", "mace.evolution"):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
 
     if not args.api_key:
         log.error("No API key. Set OPENROUTER_API_KEY or pass --api-key. "
@@ -184,13 +187,14 @@ def main():
         sys.exit(1)
     train_paths = instances[: args.n_train]
     test_paths = instances[args.n_train: args.n_train + args.n_test]
-    log.info("%d train + %d test instances", len(train_paths), len(test_paths))
+    log.info("%d development + %d test instances", len(train_paths), len(test_paths))
 
     llm = OpenRouterClient(api_key=args.api_key, model=args.model,
                            temperature=args.temperature, max_tokens=args.max_tokens,
                            max_calls=args.max_calls)
 
     # ---- Stage One: initial portfolio ----
+    log.info("Stage One: building initial portfolio (%d heuristics) ...", args.N)
     try:
         portfolio = build_initial_portfolio(
             spec=spec, baseline_code=spec.starter_code, llm_client=llm,
@@ -198,12 +202,13 @@ def main():
             smoke_time_limit_s=args.smoke_time_limit, I_rep=args.I_rep,
             spec_module_path=spec_module_path, use_subprocess=True, hard_kill_slack=2.0,
         )
-    except RuntimeError as e:
-        log.info("baseline smoke failed (%s); falling back to all-O5", e)
+    except RuntimeError:
+        # The starter template is an intentional placeholder, so it does not pass
+        # the smoke test; build the initial heuristics from scratch instead.
         portfolio = _build_all_o5_portfolio(spec, llm, args.N, train_paths[0],
                                             args.smoke_time_limit, args.I_rep, log, spec_module_path)
         if len(portfolio) < args.N:
-            log.error("only %d/%d O5 candidates passed smoke", len(portfolio), args.N)
+            log.error("could not build a full initial portfolio (%d/%d)", len(portfolio), args.N)
             sys.exit(1)
     (out_dir / "initial_portfolio.json").write_text(
         json.dumps(portfolio, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -212,9 +217,10 @@ def main():
     F0, _ = evaluate_portfolio(spec, portfolio, train_paths, T_max=args.T_max,
                                spec_module_path=spec_module_path, use_subprocess=_use_subproc,
                                n_workers=args.n_workers, hard_kill_slack=args.hard_kill_slack)
-    log.info("initial CPI=%.4f", compute_cpi(F0))
+    log.info("Stage One complete: %d heuristics.", len(portfolio))
 
     # ---- Stage Two: complementary evolution ----
+    log.info("Stage Two: evolving portfolio (%d iterations) ...", args.I_iter)
     portfolio_final, F_final, history = evolve(
         spec=spec, portfolio=portfolio, F=F0, training_instances=train_paths,
         N=args.N, I_iter=args.I_iter, T_max=args.T_max, llm_client=llm,
@@ -226,16 +232,18 @@ def main():
         json.dumps(portfolio_final, indent=2, ensure_ascii=False), encoding="utf-8")
     (out_dir / "history.json").write_text(
         json.dumps(history, indent=2, ensure_ascii=False), encoding="utf-8")
-    log.info("final CPI=%.4f -> %s", compute_cpi(F_final), out_dir / "final_portfolio.json")
+    log.info("Stage Two complete: final portfolio saved to %s", out_dir / "final_portfolio.json")
 
     # ---- Test ----
+    log.info("Evaluating final portfolio on held-out test instances ...")
     test_results = evaluate_on_test(spec, portfolio_final, test_paths, T_max=args.T_max,
                                     spec_module_path=spec_module_path, use_subprocess=_use_subproc,
                                     n_workers=args.n_workers, hard_kill_slack=args.hard_kill_slack)
     test_F = np.array(test_results["F_test"])
-    log.info("test CPI=%.4f  feasible_rate=%.3f", compute_cpi(test_F),
-             float((test_F < PENALTY).any(axis=1).mean()))
-    log.info("llm stats: %s", llm.stats())
+    feasible_pct = 100.0 * float((test_F < PENALTY).any(axis=1).mean())
+    stats = llm.stats()
+    log.info("Result: portfolio is feasible on %.1f%% of test instances.", feasible_pct)
+    log.info("LLM usage: %d calls, %d failed.", stats.get("n_calls", 0), stats.get("n_failed_calls", 0))
 
 
 if __name__ == "__main__":
