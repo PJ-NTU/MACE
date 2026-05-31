@@ -1,36 +1,100 @@
-"""Helper Designer: generate a few domain helper tools (a handful), then validate
-EACH ONE INDIVIDUALLY — an LLM writes a simple heuristic that is required to call
-that specific helper, and we instrument the helper to confirm it was actually
-invoked and ran without error. A broken or unused helper is rejected.
+"""Helper Designer (two-phase):
 
-Helpers are optional: if the model decides none are needed, the stage passes."""
+  Phase 1 (plan): ONE LLM call lists a small, non-overlapping set of helper tools
+    (names + purposes only). Planning the whole set at once avoids duplicates that
+    independent per-helper generations would produce (the model has no memory).
+  Phase 2 (implement + validate each): for each planned helper, generate its code,
+    then validate it with a heuristic that is REQUIRED to call it (instrumented to
+    confirm invocation). If it cannot be made to work within the repair budget, the
+    helper is DISCARDED — helpers are optional and never fail the pipeline.
+
+Contrast with the T core (is_feasible / objective), which is MANDATORY."""
 from __future__ import annotations
 import ast
+import logging
 import tempfile
 from dataclasses import replace
 from pathlib import Path
 
-from .validate import run_stage
+from mace.evolution.operators._common import extract_python
 from .assemble import build_spec
 from .heuristic_check import heuristic_passes
 
-_PROMPT = (Path(__file__).parent / "prompts" / "helper_designer.md").read_text(encoding="utf-8")
+logger = logging.getLogger(__name__)
+
+_PLAN_PROMPT = (Path(__file__).parent / "prompts" / "helper_designer.md").read_text(encoding="utf-8")
+_IMPL_PROMPT = (Path(__file__).parent / "prompts" / "helper_impl.md").read_text(encoding="utf-8")
 
 
-def _helper_funcs(src: str):
-    """Return [(name, purpose)] for every top-level function in the draft."""
-    out = []
+def _func_src(src: str, name: str) -> str | None:
     for node in ast.parse(src).body:
-        if isinstance(node, ast.FunctionDef):
-            doc = ast.get_docstring(node) or ""
-            purpose = doc.strip().splitlines()[0] if doc.strip() else f"helper {node.name}"
-            out.append((node.name, purpose))
-    return out
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return ast.get_source_segment(src, node)
+    return None
+
+
+def _entry_to_dict(node):
+    """Parse one plan entry, accepting either a {..} dict literal or a dict(..) call."""
+    if isinstance(node, ast.Dict):
+        d = {}
+        for k, v in zip(node.keys, node.values):
+            if isinstance(k, ast.Constant) and isinstance(v, ast.Constant):
+                d[k.value] = v.value
+        return d
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "dict":
+        return {kw.arg: kw.value.value for kw in node.keywords
+                if isinstance(kw.value, ast.Constant)}
+    return {}
+
+
+def _plan_helpers(llm_client, ctx):
+    """Phase 1: return [(name, purpose)] — at most 3, non-overlapping."""
+    prompt = _PLAN_PROMPT.format(nl=ctx.nl_description, input_schema=ctx.input_schema or "",
+                                 output_schema=ctx.output_schema or "")
+    code = extract_python(llm_client.chat(prompt))
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "HELPERS_PLAN" for t in node.targets) \
+                and isinstance(node.value, (ast.List, ast.Tuple)):
+            out = []
+            for elt in node.value.elts[:3]:
+                d = _entry_to_dict(elt)
+                name = d.get("name")
+                if isinstance(name, str) and name.isidentifier():
+                    out.append((name, str(d.get("purpose", ""))))
+            return out
+    return []
+
+
+def _implement_helper(llm_client, ctx, name, purpose) -> str:
+    prompt = _IMPL_PROMPT.format(
+        nl=ctx.nl_description, input_schema=ctx.input_schema or "",
+        output_schema=ctx.output_schema or "", is_feasible=ctx.is_feasible_code or "",
+        objective=ctx.objective_code or "", name=name, purpose=purpose)
+    code = extract_python(llm_client.chat(prompt))
+    return _func_src(code, name) or code
+
+
+def _repair_helper(llm_client, name, src, err) -> str:
+    body = (
+        f"# Broken helper `{name}`\n```python\n{src}\n```\n\n"
+        f"# Failure report\n```\n{err}\n```\n\n"
+        f"Fix this helper so a solver can call `tools['{name}'](...)` and it runs "
+        f"correctly. Keep the signature `def {name}(instance, ...)` (instance first) "
+        f"and keep any imports inside the function. Output ONLY the corrected function "
+        f"in one fenced ```python block."
+    )
+    code = extract_python(llm_client.chat(body))
+    return _func_src(code, name) or code
 
 
 def _validate_one_helper(spec, cfg_module, name, llm_client, instance_path, tries=2):
-    """A heuristic must CALL tools['name'] and run feasibly. Instrument the
-    config-level helper to count invocations so an unused/ignored helper fails."""
+    """A heuristic must CALL tools['name'] and run feasibly. The helper is
+    instrumented (call counter) to confirm it was actually invoked."""
     orig = getattr(cfg_module, name)
     calls = {"n": 0}
 
@@ -56,55 +120,58 @@ def _validate_one_helper(spec, cfg_module, name, llm_client, instance_path, trie
         setattr(cfg_module, name, orig)
 
 
-def design_helpers(ctx, llm_client, instance_path, i_rep: int = 2):
+def design_helpers(ctx, llm_client, instance_path, i_rep: int = 3):
     base_tools = list(ctx.tools_description or [])
-    gen_prompt = _PROMPT.format(
-        nl=ctx.nl_description,
-        input_schema=ctx.input_schema or "",
-        output_schema=ctx.output_schema or "",
-        is_feasible=ctx.is_feasible_code or "",
-        objective=ctx.objective_code or "",
-    )
 
-    def _tools_desc(funcs):
+    def _tools_desc(pairs):
         return base_tools + [
             {"name": n, "input": "solution/partial args (instance is bound)",
-             "output": "...", "purpose": p} for n, p in funcs
+             "output": "...", "purpose": p} for n, p in pairs
         ]
 
-    def smoke(draft):
-        try:
-            compile(draft, "<helpers_draft>", "exec")
-        except SyntaxError as e:
-            return False, f"helpers draft invalid syntax: {e.msg} (line {e.lineno})"
-        funcs = _helper_funcs(draft)
-        if not funcs:
-            return True, None  # model judged no helpers needed — acceptable
-        names = [n for n, _ in funcs]
-        trial = replace(ctx, helpers_code=draft, helper_names=names,
-                        tools_description=_tools_desc(funcs))
-        try:
-            tmp = Path(tempfile.mkdtemp()) / "helper_trial"
-            spec = build_spec(trial, "helper_trial", str(tmp))
-            cfg_module = spec._cfg_module
-        except Exception as e:
-            return False, f"contract failed to assemble/import with helpers: {type(e).__name__}: {e}"
-        # Validate EACH helper individually (its own heuristic, must be called).
-        for name, _purpose in funcs:
-            ok, err = _validate_one_helper(spec, cfg_module, name, llm_client, instance_path)
-            if not ok:
-                return False, f"helper '{name}': {err}"
-        return True, None
+    plan = _plan_helpers(llm_client, ctx)
+    purpose_of = dict(plan)
+    accepted: dict[str, str] = {}  # name -> validated source
 
-    src = run_stage(llm_client, gen_prompt, lambda d: None, smoke, i_rep=i_rep,
-                    stage_name="Helper Designer")
-    funcs = _helper_funcs(src)
-    if funcs:
-        ctx.helpers_code = src
-        ctx.helper_names = [n for n, _ in funcs]
-        ctx.tools_description = _tools_desc(funcs)
+    for name, purpose in plan:
+        try:
+            src = _implement_helper(llm_client, ctx, name, purpose)
+        except Exception as e:
+            logger.info("Helper Designer: DISCARDING '%s' (implement raised: %s)", name, e)
+            continue
+        ok, err = False, "not validated"
+        for attempt in range(i_rep + 1):
+            trial_sources = {**accepted, name: src}
+            trial = replace(
+                ctx, helpers_code="\n\n".join(trial_sources.values()),
+                helper_names=list(trial_sources.keys()),
+                tools_description=_tools_desc([(n, purpose_of.get(n, "")) for n in trial_sources]))
+            try:
+                tmp = Path(tempfile.mkdtemp()) / "helper_trial"
+                spec = build_spec(trial, "helper_trial", str(tmp))
+                cfg_module = spec._cfg_module
+            except Exception as e:
+                err = f"assemble/import failed: {type(e).__name__}: {e}"
+            else:
+                ok, err = _validate_one_helper(spec, cfg_module, name, llm_client, instance_path)
+                if ok:
+                    break
+            if attempt < i_rep:
+                try:
+                    src = _repair_helper(llm_client, name, src, err)
+                except Exception as e:
+                    err = f"repair raised: {type(e).__name__}: {e}"
+        if ok:
+            accepted[name] = src
+            logger.info("Helper Designer: helper '%s' accepted", name)
+        else:
+            logger.info("Helper Designer: DISCARDING helper '%s' after %d repairs: %s",
+                        name, i_rep, err)
+
+    if accepted:
+        ctx.helpers_code = "\n\n".join(accepted.values())
+        ctx.helper_names = list(accepted.keys())
+        ctx.tools_description = _tools_desc([(n, purpose_of.get(n, "")) for n in accepted])
     else:
-        ctx.helpers_code = None
-        ctx.helper_names = []
-        ctx.tools_description = base_tools
+        ctx.helpers_code, ctx.helper_names, ctx.tools_description = None, [], base_tools
     return ctx

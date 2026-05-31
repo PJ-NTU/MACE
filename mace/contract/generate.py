@@ -58,14 +58,19 @@ def generate_contract(slug, nl_description, instances_dir, out_dir, llm_client,
     instance_paths = _find_instances(instances_dir)
     if not instance_paths:
         raise ContractGenerationError(f"no instance files found in {instances_dir}")
-    smallest = min(instance_paths, key=lambda p: Path(p).stat().st_size)
+    # All instances of one problem share the same format, so validating the
+    # parser on the SMALLEST one or two is enough (and avoids tripping/slowing on
+    # huge instances). The smallest is also used for the T / helper / final gates.
+    by_size = sorted(instance_paths, key=lambda p: Path(p).stat().st_size)
+    val_paths = by_size[:2]
+    smallest = by_size[0]
 
     ctx = ContractContext(nl_description=nl_description,
                           sample_instance_text=_read_sample(instance_paths))
     ctx.direction = direction
 
     logger.info("Stage Zero: Input Designer (I) — generate + reviewer")
-    design_input(ctx, llm_client, instance_paths, example_slug, i_rep)
+    design_input(ctx, llm_client, val_paths, example_slug, i_rep)
     logger.info("Stage Zero: Output Designer (O) — generate + reviewer")
     design_output(ctx, llm_client, example_slug, i_rep)
     logger.info("Stage Zero: Tool Designer (T core) — is_feasible + objective, validated by a heuristic")

@@ -1,4 +1,4 @@
-You are extending the TOOL library (T) of an ISTH combinatorial-optimization problem with a FEW domain helper functions — reusable building blocks a solver would call (e.g. distance between nodes, route/tour cost, a delta-evaluation for a local move, a feasibility-preserving repair). Keep it to AT MOST 3 helpers; only add ones a heuristic would genuinely use.
+You are PLANNING the domain helper tools (T) for an ISTH combinatorial-optimization problem — deciding WHICH reusable building blocks a solver would call (e.g. distance between nodes, route/tour cost, a delta-evaluation for a local move, a feasibility-preserving repair). You are not writing code yet; you are choosing a small, NON-OVERLAPPING set.
 
 # Problem description
 
@@ -12,42 +12,22 @@ You are extending the TOOL library (T) of an ISTH combinatorial-optimization pro
 
 {output_schema}
 
-# Locked feasibility checker
-
-```python
-{is_feasible}
-```
-
-# Locked objective
-
-```python
-{objective}
-```
-
 # Your task
 
-Output ONE fenced ```python block defining 0–3 helper functions. Each helper:
-- takes `instance` as its FIRST argument (the framework binds it), e.g. `def tour_length(instance, tour): ...`
-- has a one-line docstring stating what it does (this becomes its tool description)
-- is something a solver would actually call while constructing or improving a solution.
+Propose AT MOST 3 distinct, complementary helper tools that a heuristic for THIS problem would genuinely call. Avoid overlap or duplicates — each must do something clearly different and useful.
 
-If no helper is genuinely useful for this problem, output an empty ```python block.
+Output ONE fenced ```python block assigning a list named `HELPERS_PLAN`, where each entry is a dict with two keys: a valid Python identifier under key name, and a one-line description under key purpose. If no helper is genuinely useful, output `HELPERS_PLAN = []`.
 
 # Example (for a different problem)
 
 ```python
-def tour_length(instance, tour):
-    """Total Euclidean length of a closed tour (list of city indices)."""
-    import math
-    pts = instance["coordinates"]
-    total = 0.0
-    for a, b in zip(tour, tour[1:] + tour[:1]):
-        total += math.hypot(pts[a][0] - pts[b][0], pts[a][1] - pts[b][1])
-    return total
+HELPERS_PLAN = [
+    dict(name="tour_length", purpose="Total Euclidean length of a closed tour."),
+    dict(name="two_opt_delta", purpose="Change in tour length from a 2-opt swap of two edges."),
+]
 ```
 
 # Rules
 
-- Output ONLY one ```python block (with any `import` the helpers need). No prose outside it.
-- First argument of every helper is `instance`.
-- Use only the Python standard library and numpy.
+- Output ONLY one ```python block assigning HELPERS_PLAN. No prose outside it.
+- At most 3 entries; fewer is fine; `[]` if none are useful.
