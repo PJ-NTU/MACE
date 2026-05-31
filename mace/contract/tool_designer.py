@@ -7,6 +7,7 @@ can produce a solution that is_feasible accepts and objective scores, the I/O/T
 core works together. Failure triggers bounded repair of T."""
 from __future__ import annotations
 import ast
+import math
 import tempfile
 from dataclasses import replace
 from pathlib import Path
@@ -16,6 +17,26 @@ from .assemble import build_spec
 from .heuristic_check import heuristic_passes
 
 _PROMPT = (Path(__file__).parent / "prompts" / "tool_designer.md").read_text(encoding="utf-8")
+
+
+def _placeholder_is_feasible(spec, instance_path) -> bool:
+    """True if the O placeholder make_solution is accepted by is_feasible and
+    scored by objective — a guaranteed-feasible witness that the T core runs
+    correctly, without needing a heuristic to FIND feasibility."""
+    try:
+        inst = spec.load_data(instance_path)
+        cfg = getattr(spec, "_cfg_module", None)
+        if cfg is None or not hasattr(cfg, "make_solution"):
+            return False
+        sol = cfg.make_solution(inst)
+        tools = spec.tools(inst)
+        ok, _msg = tools["is_feasible"](sol)
+        if not ok:
+            return False
+        val = tools["objective"](sol)
+        return isinstance(val, (int, float)) and math.isfinite(val) and val < 1e10
+    except Exception:
+        return False
 
 
 def _extract_func_src(src: str, name: str) -> str | None:
@@ -62,7 +83,7 @@ def design_tools(ctx, llm_client, instance_path, example_slug=None, i_rep: int =
             return False, "missing is_feasible(instance, solution)"
         if obj is None:
             return False, "missing objective(instance, solution)"
-        # Build a temp spec from (I + this T) and run a real heuristic through it.
+        # Build a temp spec from (I + this T).
         trial = replace(ctx, is_feasible_code=is_feas, objective_code=obj,
                         helpers_code=None, helper_names=[], tools_description=[])
         try:
@@ -70,6 +91,15 @@ def design_tools(ctx, llm_client, instance_path, example_slug=None, i_rep: int =
             spec = build_spec(trial, "tool_trial", str(tmp))
         except Exception as e:
             return False, f"contract failed to assemble/import: {type(e).__name__}: {e}"
+        # Fast path: the O placeholder make_solution is meant to be feasible by
+        # construction. If is_feasible accepts it and objective scores it, the T
+        # core demonstrably runs correctly on a known-feasible witness — no need
+        # to depend on a generated heuristic FINDING feasibility (which is itself
+        # hard for tightly-constrained problems).
+        if _placeholder_is_feasible(spec, instance_path):
+            return True, None
+        # Otherwise fall back to having an LLM write a real heuristic that must
+        # produce a feasible, scored solution through I -> O -> T.
         ok, err, _ = heuristic_passes(spec, llm_client, instance_path,
                                       hint="", tries=3)
         if not ok:
