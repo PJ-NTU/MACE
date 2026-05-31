@@ -1,9 +1,14 @@
-"""Input Designer (I): generate DESCRIPTION + load_data + input schema."""
+"""Input Designer (I): generate DESCRIPTION + load_data + input schema.
+
+Validation = machine smoke (load_data actually parses every instance) AND an
+independent reviewer LLM that judges whether the schema correctly captures the
+problem. Either failing triggers bounded repair."""
 from __future__ import annotations
 import ast
 from pathlib import Path
 
 from .validate import run_stage, smoke_input
+from .reviewer import review
 
 _PROMPT = (Path(__file__).parent / "prompts" / "input_designer.md").read_text(encoding="utf-8")
 _EXAMPLE_ROOT = Path(__file__).resolve().parents[2] / "problems"
@@ -17,9 +22,9 @@ def _extract_description(src: str) -> str | None:
     for node in ast.parse(src).body:
         if isinstance(node, ast.Assign):
             for t in node.targets:
-                if isinstance(t, ast.Name) and t.id == "DESCRIPTION":
-                    if isinstance(node.value, ast.Constant):
-                        return node.value.value
+                if isinstance(t, ast.Name) and t.id == "DESCRIPTION" \
+                        and isinstance(node.value, ast.Constant):
+                    return node.value.value
     return None
 
 
@@ -28,8 +33,7 @@ def _extract_schema_comment(src: str) -> str:
     return "\n".join(lines)
 
 
-def design_input(ctx, llm_client, instance_paths, required_keys, example_slug,
-                 i_rep: int = 3):
+def design_input(ctx, llm_client, instance_paths, example_slug, i_rep: int = 3):
     gen_prompt = _PROMPT.format(
         nl=ctx.nl_description,
         sample=ctx.sample_instance_text,
@@ -37,13 +41,20 @@ def design_input(ctx, llm_client, instance_paths, required_keys, example_slug,
     )
 
     def smoke(draft):
-        return smoke_input(draft, instance_paths, required_keys)
+        ok, err = smoke_input(draft, instance_paths, [])
+        if not ok:
+            return False, f"[machine] {err}"
+        ok2, fb = review(
+            llm_client, "input schema + load_data parser", ctx.nl_description, draft,
+            extra_context=f"# Raw sample instance bytes\n```\n{ctx.sample_instance_text[:4000]}\n```",
+        )
+        if not ok2:
+            return False, f"[reviewer] {fb}"
+        return True, None
 
-    # Slim pipeline: one generation call, then smoke + bounded repair. The
-    # "reflection" self-check is folded into the prompt (no extra LLM round-trip).
     src = run_stage(llm_client, gen_prompt, lambda d: None, smoke, i_rep=i_rep,
                     stage_name="Input Designer")
     ctx.load_data_code = src
     ctx.description = _extract_description(src) or ctx.nl_description
-    ctx.input_schema = _extract_schema_comment(src) or ", ".join(required_keys)
+    ctx.input_schema = _extract_schema_comment(src) or ""
     return ctx

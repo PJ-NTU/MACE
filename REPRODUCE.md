@@ -143,13 +143,21 @@ size, `--I-iter` evolution iterations, `--T-max` per-instance runtime budget (s)
 
 ## Regenerating a problem contract (Stage Zero)
 
-MACE's I-O-T problem contract for a new problem can be regenerated automatically
+MACE's I-O-T problem contract for a NEW problem can be generated automatically
 from a natural-language description and raw instance files using `mace/contract/`,
 closing the loop on the paper's "the problem contract is constructed automatically
-by an LLM agent" claim. Each of the three designers (Input, Output, Tool) is gated
-by reflection and a smoke test with bounded auto-repair, and the whole contract must
-pass an end-to-end gate (the same smoke test used for heuristics) before it is
-written out.
+by an LLM agent" claim. A new problem has no pre-existing evaluator, so the tool
+library T is authored directly as separate functions — `is_feasible` and
+`objective` (plus a few domain helpers) — with no `eval_func`. The pipeline:
+
+- **I (input schema + `load_data`)** and **O (solution schema + a trivial
+  `make_solution`)** are each generated, then audited by an independent reviewer
+  LLM for correctness (machine checks run too: `load_data` must parse every instance).
+- **T core (`is_feasible` + `objective`)** is validated the way MACE actually
+  uses a contract: an LLM writes a real heuristic that runs through I → O → T; if a
+  solver can produce a feasible, scored solution, the core works.
+- **Helpers** (a few domain tools) are validated by a heuristic that calls them.
+- A final heuristic gate runs the whole assembled contract before it is written out.
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-...
@@ -157,10 +165,14 @@ python scripts/generate_contract.py \
     --slug my_problem \
     --description path/to/description.txt \
     --instances problems/my_problem/instances \
-    --keys field_a field_b \
-    --model google/gemini-3.1-flash-lite \
+    --model google/gemini-2.5-flash \
     --example aircraft_landing
 ```
+
+Note: validating that a heuristic runs through the contract proves it is usable
+and self-consistent; the semantic correctness of `is_feasible`/`objective` for a
+brand-new problem (no external ground truth) ultimately rests on the description
+and human review.
 
 The unit tests run fully offline (`python -m pytest tests/contract/ -v`); the
 faithfulness integration test (`tests/contract/test_faithfulness_integration.py`)

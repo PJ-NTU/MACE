@@ -1,9 +1,13 @@
-"""Output Designer (O): define solution schema + trivial feasible placeholder."""
+"""Output Designer (O): define solution schema + trivial feasible placeholder.
+
+Validation = shape check (make_solution + OUTPUT_SCHEMA present, importable) AND
+an independent reviewer LLM judging whether the solution shape fits the problem."""
 from __future__ import annotations
 import ast
 from pathlib import Path
 
 from .validate import run_stage, _import_from_source
+from .reviewer import review
 
 _PROMPT = (Path(__file__).parent / "prompts" / "output_designer.md").read_text(encoding="utf-8")
 _EXAMPLE_ROOT = Path(__file__).resolve().parents[2] / "problems"
@@ -16,9 +20,9 @@ def _starter_example(slug: str) -> str:
 def _extract_str_const(src: str, name: str) -> str | None:
     for node in ast.parse(src).body:
         if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == name for t in node.targets):
-            if isinstance(node.value, ast.Constant):
-                return node.value.value
+            isinstance(t, ast.Name) and t.id == name for t in node.targets) \
+                and isinstance(node.value, ast.Constant):
+            return node.value.value
     return None
 
 
@@ -32,15 +36,21 @@ def design_output(ctx, llm_client, example_slug, i_rep: int = 3):
 
     def smoke(draft):
         try:
-            mod = _import_from_source(
-                (ctx.load_data_code or "") + "\n" + draft, "_ctr_output")
+            mod = _import_from_source((ctx.load_data_code or "") + "\n" + draft, "_ctr_output")
         except Exception as e:
-            return False, f"output draft import failed: {type(e).__name__}: {e}"
+            return False, f"[machine] output draft import failed: {type(e).__name__}: {e}"
         if not hasattr(mod, "make_solution"):
-            return False, "no make_solution() defined"
-        schema = _extract_str_const(draft, "OUTPUT_SCHEMA")
-        return (schema is not None,
-                None if schema else "missing OUTPUT_SCHEMA string")
+            return False, "[machine] no make_solution() defined"
+        if _extract_str_const(draft, "OUTPUT_SCHEMA") is None:
+            return False, "[machine] missing OUTPUT_SCHEMA string"
+        ok2, fb = review(
+            llm_client, "output (solution) schema + trivial make_solution",
+            ctx.nl_description, draft,
+            extra_context=f"# Locked input schema\n{ctx.input_schema or ''}",
+        )
+        if not ok2:
+            return False, f"[reviewer] {fb}"
+        return True, None
 
     src = run_stage(llm_client, gen_prompt, lambda d: None, smoke, i_rep=i_rep,
                     stage_name="Output Designer")

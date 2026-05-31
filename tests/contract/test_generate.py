@@ -1,46 +1,53 @@
 from mace.contract.generate import generate_contract
 
-I_RESP = '''```python
-# cap: int
-# items: list[int]
-DESCRIPTION = "0/1 knapsack: pick items without exceeding capacity"
+I_GEN = '''```python
+# n: int, number of items
+# weights: list[int]
+DESCRIPTION = "Pick at least one item to minimise total selected weight."
 def load_data(path):
-    with open(path) as f:
-        cap, *items = [int(x) for x in f.read().split()]
-    return {"cap": cap, "items": items}
+    return {"n": 3, "weights": [5, 2, 8]}
 ```'''
-O_RESP = '''```python
-OUTPUT_SCHEMA = "dict with key 'chosen': list[int] of selected item indices"
+O_GEN = '''```python
+OUTPUT_SCHEMA = "dict with key 'picked': list[int]"
 def make_solution(instance):
-    return {"chosen": []}
+    return {"picked": [0]}
 ```'''
-T_RESP = '''```python
-def eval_func(**kw):
-    chosen = kw["chosen"]
-    if len(set(chosen)) != len(chosen):
-        raise ValueError("duplicate item")
-    total = sum(kw["items"][i] for i in chosen)
-    if total > kw["cap"]:
-        raise ValueError("capacity exceeded")
-    return float(kw["cap"] - total)
-def infeasible_make_solution(instance):
-    n = len(instance["items"])
-    return {"chosen": list(range(n)) + list(range(n))}
+T_GEN = '''```python
+def is_feasible(instance, solution):
+    if len(solution.get("picked", [])) < 1:
+        return False, "C1: need at least one"
+    return True, None
+def objective(instance, solution):
+    return float(sum(instance["weights"][i] for i in solution["picked"]))
 ```'''
+HELPER_GEN = '''```python
+def lightest_item(instance):
+    """Index of the lightest item."""
+    w = instance["weights"]
+    return min(range(len(w)), key=lambda i: w[i])
+```'''
+HEUR = '''```python
+def solve(instance, tools, time_limit_s):
+    return {"picked": [0]}
+```'''
+
 
 def test_generate_contract_end_to_end(fake_llm, tmp_path):
     inst = tmp_path / "instances"; inst.mkdir()
-    (inst / "k1.txt").write_text("10 3 4 5 6")
+    (inst / "k1.txt").write_text("3\n5 2 8")
     out = tmp_path / "problems" / "knap"
-    # slim pipeline: one LLM call per designer (I, O, T)
-    llm = fake_llm([I_RESP, O_RESP, T_RESP])
-    result_path = generate_contract(
-        slug="knap", nl_description="0/1 knapsack",
-        instances_dir=str(inst), out_dir=str(out),
-        llm_client=llm, required_keys=["cap", "items"],
-        example_slug="aircraft_landing",
-    )
+    # I(gen+review) O(gen+review) T(gen+heuristic) helper(gen+heuristic) final(heuristic)
+    llm = fake_llm([I_GEN, "APPROVED", O_GEN, "APPROVED",
+                    T_GEN, HEUR, HELPER_GEN, HEUR, HEUR])
+    generate_contract(slug="knap", nl_description="pick items, min weight",
+                      instances_dir=str(inst), out_dir=str(out),
+                      llm_client=llm, example_slug="aircraft_landing")
     assert (out / "spec.py").exists()
     assert (out / "config.py").exists()
-    # slim version: feasibility_steps.py is not generated
-    assert not (out / "feasibility_steps.py").exists()
+    assert not (out / "feasibility_steps.py").exists()  # native: no eval_func / steps
+
+    import importlib.util
+    s = importlib.util.spec_from_file_location("knapcfg2", out / "config.py")
+    m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+    assert not hasattr(m, "eval_func")
+    assert hasattr(m, "is_feasible") and hasattr(m, "objective")

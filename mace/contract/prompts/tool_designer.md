@@ -1,48 +1,61 @@
-You are designing the TOOL contract (T) — the ground-truth evaluator — of an ISTH problem.
+You are designing the core of the TOOL library (T) for an ISTH combinatorial-optimization problem: the feasibility checker and the objective evaluator. There is NO pre-existing evaluator — you are authoring the formal definition of "feasible" and "cost" for this problem from its description.
 
 # Problem description
 
 {nl}
 
-# Locked input schema
+# Locked input schema (I) — the `instance` dict
 
 {input_schema}
 
-# Locked output (solution) schema
+# Locked output schema (O) — the `solution` dict
 
 {output_schema}
 
-# Locked trivial placeholder solution
+# Locked trivial placeholder solution (a known-feasible baseline)
 
 ```python
 {placeholder}
 ```
 
-# Worked example (eval_func + feasibility_steps from an existing problem)
-
-```python
-{example}
-```
-
 # Your task
 
-Output ONE fenced ```python block that defines exactly these TWO objects:
+Output ONE fenced ```python block that defines EXACTLY these two functions:
 
-1. `eval_func(**kwargs)` — the ground-truth evaluator (the heart of the tool library T).
-   - It receives the instance dict merged with the solution dict as keyword arguments.
-   - It must check EVERY constraint stated in the problem description, in order. A
-     short `# C1`, `# C2`, ... comment on each check (naming the constraint) is
-     encouraged so the logic stays scannable.
-   - On ANY violation it must `raise ValueError` with a clear human-readable message identifying which constraint was broken.
-   - It must return the objective cost as a non-negative `float` (lower-is-better, i.e. minimization).
+1. `is_feasible(instance, solution)` — returns `(True, None)` if the solution
+   satisfies EVERY constraint in the problem description, else `(False, message)`
+   at the first violation. Put a short `# C1`, `# C2`, ... comment on each check
+   naming the constraint, so the logic stays scannable. Do NOT raise; return the
+   tuple.
+2. `objective(instance, solution)` — returns the objective value as a float,
+   **LOWER IS BETTER** (if the problem is a maximization, return the negated /
+   reciprocal value so that smaller = better). Assume the solution is feasible.
 
-2. `infeasible_make_solution(instance)` — builds a solution dict that violates EXACTLY ONE constraint (any single constraint is fine). This is used only for a smoke test to confirm that `eval_func` actually rejects bad solutions. It must accept one positional argument `instance` (the dict returned by `load_data`) and return a `dict` with the same top-level keys as a normal solution.
+Both take the `instance` dict (shape I) and the `solution` dict (shape O).
 
-Additional rules:
-- Output ONLY one ```python block. No prose before or after it.
-- `eval_func` must enforce every constraint in the problem description — do not omit any.
-  Before you finish, re-read the description and self-check that each constraint has a
-  matching check in `eval_func` (this is your reflection step — do it in-line, silently).
-- `infeasible_make_solution` must return a solution that `eval_func` will reject (raise ValueError).
-- The cost returned by `eval_func` on a feasible solution must be >= 0.
-- Do not import anything that is not in the Python standard library.
+# Example of the exact shape expected (for a different, tiny problem)
+
+```python
+def is_feasible(instance, solution):
+    picked = solution.get("picked", [])
+    # C1: must pick at least one item
+    if len(picked) < 1:
+        return False, "C1: must pick at least one item"
+    n = instance["n"]
+    # C2: every index is a valid item
+    if any((not isinstance(i, int)) or i < 0 or i >= n for i in picked):
+        return False, "C2: invalid item index"
+    return True, None
+
+def objective(instance, solution):
+    # LOWER IS BETTER: total weight of the picked items
+    return float(sum(instance["weights"][i] for i in solution["picked"]))
+```
+
+# Rules
+
+- Output ONLY one ```python block (plus any `import` it needs at module top). No prose outside it.
+- `is_feasible` must enforce EVERY constraint in the description — before you finish,
+  re-read the description and self-check that each constraint has a matching `# Ck` check.
+- The trivial placeholder solution above MUST be accepted by your `is_feasible`.
+- Use only the Python standard library and numpy.

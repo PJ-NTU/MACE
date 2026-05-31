@@ -7,8 +7,7 @@ Example:
       --slug my_problem \
       --description path/to/description.txt \
       --instances problems/my_problem/instances \
-      --keys cap items \
-      --model google/gemini-3.1-flash-lite \
+      --model google/gemini-2.5-flash \
       --example aircraft_landing
 """
 from __future__ import annotations
@@ -32,8 +31,7 @@ def main():
     ap.add_argument("--description", required=True, help="path to NL description .txt")
     ap.add_argument("--instances", required=True, help="dir of raw instance files")
     ap.add_argument("--out", default=None, help="output dir (default problems/<slug>)")
-    ap.add_argument("--keys", nargs="*", default=[], help="expected top-level instance keys")
-    ap.add_argument("--model", default="google/gemini-3.1-flash-lite")
+    ap.add_argument("--model", default="google/gemini-2.5-flash")
     ap.add_argument("--example", default="aircraft_landing")
     ap.add_argument("--direction", choices=["min", "max"], default="min")
     ap.add_argument("--i-rep", type=int, default=3)
@@ -46,13 +44,13 @@ def main():
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         sys.exit("OPENROUTER_API_KEY not set")
-    # 16k completion cap: the Tool Designer's eval_func can be long for
-    # many-constraint problems; the default 8k truncates and breaks generation.
+    # 16k completion cap: the Tool Designer's is_feasible/objective can be long
+    # for many-constraint problems; the default 8k truncates and breaks generation.
     llm = OpenRouterClient(api_key=key, model=args.model, max_tokens=16384)
 
     path = generate_contract(
         slug=args.slug, nl_description=nl, instances_dir=args.instances,
-        out_dir=out, llm_client=llm, required_keys=args.keys,
+        out_dir=out, llm_client=llm,
         example_slug=args.example, direction=args.direction, i_rep=args.i_rep,
     )
     print(f"Contract written to {path}")

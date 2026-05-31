@@ -1,33 +1,54 @@
+import importlib.util
+
 from mace.contract.assemble import assemble_contract
 from mace.contract.context import ContractContext
 
-def _full_ctx():
-    ctx = ContractContext(nl_description="knapsack", sample_instance_text="raw")
-    ctx.description = "knapsack"
-    ctx.load_data_code = 'def load_data(path):\n    return {"cap": 10, "items": [3, 4, 5]}'
-    ctx.input_schema = "cap:int, items:list[int]"
-    ctx.output_schema = "chosen: list[int]"
-    ctx.placeholder_solution_code = 'def make_solution(instance):\n    return {"chosen": []}'
-    ctx.eval_func_code = ('def eval_func(**kw):\n'
-                          '    t = sum(kw["items"][i] for i in kw["chosen"])\n'
-                          '    if t > kw["cap"]:\n        raise ValueError("cap")\n'
-                          '    return float(kw["cap"] - t)')
-    ctx.feasibility_steps = 'def is_feasible(solution):\n    return True, None'
-    ctx.direction = "min"
+
+def _ctx():
+    ctx = ContractContext(nl_description="pick items, min weight", sample_instance_text="raw")
+    ctx.load_data_code = ('# n: int\n# weights: list[int]\n'
+                          'DESCRIPTION = "pick items"\n'
+                          'def load_data(path):\n    return {"n": 3, "weights": [5, 2, 8]}')
+    ctx.input_schema = "n:int, weights:list[int]"
+    ctx.output_schema = "picked: list[int]"
+    ctx.placeholder_solution_code = 'def make_solution(instance):\n    return {"picked": [0]}'
+    ctx.is_feasible_code = ('def is_feasible(instance, solution):\n'
+                            '    return (len(solution.get("picked", [])) >= 1), None')
+    ctx.objective_code = ('def objective(instance, solution):\n'
+                          '    return float(sum(instance["weights"][i] for i in solution["picked"]))')
+    ctx.helpers_code = ('def lightest(instance):\n    """lightest item index."""\n'
+                        '    w = instance["weights"]\n    return min(range(len(w)), key=lambda i: w[i])')
+    ctx.helper_names = ["lightest"]
+    ctx.tools_description = [{"name": "objective", "purpose": "min weight"}]
     return ctx
 
-def test_assemble_writes_importable_contract(tmp_path):
+
+def _import(path, name):
+    s = importlib.util.spec_from_file_location(name, path)
+    m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+    return m
+
+
+def test_assemble_native_contract(tmp_path):
     out = tmp_path / "knap"
-    assemble_contract(_full_ctx(), slug="knap", out_dir=str(out))
-    for f in ("config.py", "feasibility_steps.py", "spec.py", "__init__.py"):
+    assemble_contract(_ctx(), slug="knap", out_dir=str(out))
+    for f in ("config.py", "spec.py", "__init__.py"):
         assert (out / f).exists()
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("knapcfg", out / "config.py")
-    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-    assert hasattr(mod, "load_data") and hasattr(mod, "eval_func")
-    assert hasattr(mod, "make_solution")
-    assert mod.eval_func(cap=10, items=[3, 4, 5], chosen=[0]) == 7.0
-    # feasibility_steps module exposes the string
-    fspec = importlib.util.spec_from_file_location("knapfs", out / "feasibility_steps.py")
-    fmod = importlib.util.module_from_spec(fspec); fspec.loader.exec_module(fmod)
-    assert "is_feasible" in fmod.FEASIBILITY_STEPS_PY
+    assert not (out / "feasibility_steps.py").exists()  # native: no such file
+
+    cfg = _import(out / "config.py", "knapcfg")
+    assert hasattr(cfg, "load_data") and hasattr(cfg, "is_feasible")
+    assert hasattr(cfg, "objective") and hasattr(cfg, "make_solution")
+    assert not hasattr(cfg, "eval_func")   # no eval_func at all
+    inst = cfg.load_data("x")
+    assert cfg.is_feasible(inst, {"picked": [0]})[0] is True
+    assert cfg.objective(inst, {"picked": [0]}) == 5.0
+    assert cfg.lightest(inst) == 1
+
+    spec = _import(out / "spec.py", "knapspec").SPEC
+    tools = spec.tools(inst)
+    assert {"is_feasible", "objective", "lightest"}.issubset(tools.keys())
+    # instance is pre-bound: tools take only the solution / extra args
+    assert tools["objective"]({"picked": [0]}) == 5.0
+    assert tools["is_feasible"]({"picked": [0]}) == (True, None)
+    assert tools["lightest"]() == 1
