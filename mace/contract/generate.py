@@ -15,16 +15,24 @@ from .validate import ContractGenerationError
 logger = logging.getLogger(__name__)
 
 
-def _read_sample(instance_paths, max_files: int = 2, max_chars: int = 16000) -> str:
-    """Concatenate the full text of up to `max_files` instance files, each
-    labelled with its filename, so the Input Designer sees the real byte layout
-    (not just a truncated first file). Capped at `max_chars` total."""
+def _read_sample(instance_paths, max_files: int = 2, max_chars: int = 12000) -> str:
+    """Show the Input Designer the real byte layout of the SMALLEST instance
+    files (a truncated slice of a huge file is misleading; the smallest files'
+    near-full content is the most representative view of the format). Each file
+    is capped at `max_chars`, truncated only at a whitespace boundary so a token
+    or number is never split in half."""
+    by_size = sorted(instance_paths, key=lambda p: Path(p).stat().st_size)
     blocks = []
-    for p in instance_paths[:max_files]:
+    for p in by_size[:max_files]:
         txt = Path(p).read_text(encoding="utf-8", errors="replace")
+        if len(txt) > max_chars:
+            head = txt[:max_chars]
+            ws = max(head.rfind(" "), head.rfind("\n"))
+            if ws > 0:
+                head = head[:ws]
+            txt = head + "\n... [truncated — the rest of the file continues in the SAME format]"
         blocks.append(f"# ===== file: {Path(p).name} =====\n{txt}")
-    joined = "\n\n".join(blocks)
-    return joined[:max_chars]
+    return "\n\n".join(blocks)
 
 
 def generate_contract(slug, nl_description, instances_dir, out_dir, llm_client,

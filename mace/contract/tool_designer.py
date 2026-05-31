@@ -26,6 +26,27 @@ def _extract_func_src(src: str, name: str) -> str | None:
     return None
 
 
+def _extract_imports(src: str) -> str:
+    """Module-level import statements from the draft. eval_func often depends on
+    `import math` / numpy written at module scope; extracting only the function
+    body would drop them and raise NameError at run time."""
+    lines = []
+    for node in ast.parse(src).body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            seg = ast.get_source_segment(src, node)
+            if seg:
+                lines.append(seg)
+    return "\n".join(lines)
+
+
+def _func_with_imports(src: str, name: str) -> str | None:
+    func = _extract_func_src(src, name)
+    if func is None:
+        return None
+    imports = _extract_imports(src)
+    return (imports + "\n\n" + func).strip() if imports else func
+
+
 def design_tools(ctx, llm_client, instance_path, example_slug, i_rep: int = 3):
     gen_prompt = _PROMPT.format(
         nl=ctx.nl_description,
@@ -42,16 +63,19 @@ def design_tools(ctx, llm_client, instance_path, example_slug, i_rep: int = 3):
             compile(draft, "<tool_draft>", "exec")
         except SyntaxError as e:
             return False, f"draft has invalid Python syntax: {e.msg} (line {e.lineno})"
-        config_src = (ctx.load_data_code or "") + "\n" + (_extract_func_src(draft, "eval_func") or "")
+        imports = _extract_imports(draft)
+        config_src = (ctx.load_data_code or "") + "\n" + (_func_with_imports(draft, "eval_func") or "")
         feasible = ctx.placeholder_solution_code  # defines make_solution
         infeasible = _extract_func_src(draft, "infeasible_make_solution")
         if infeasible is None:
             return False, "missing infeasible_make_solution() for smoke test"
         infeasible = infeasible.replace("def infeasible_make_solution", "def make_solution")
+        if imports:  # the builder may also need the draft's imports (e.g. math)
+            infeasible = imports + "\n\n" + infeasible
         return smoke_eval(config_src, instance_path, feasible, infeasible)
 
     src = run_stage(llm_client, gen_prompt, lambda d: None, smoke, i_rep=i_rep,
                     stage_name="Tool Designer")
-    ctx.eval_func_code = _extract_func_src(src, "eval_func")
+    ctx.eval_func_code = _func_with_imports(src, "eval_func")
     ctx.feasibility_steps = None
     return ctx
