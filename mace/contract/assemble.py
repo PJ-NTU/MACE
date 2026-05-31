@@ -41,10 +41,12 @@ def assemble_contract(ctx, slug: str, out_dir: str) -> None:
     )
     (out / "config.py").write_text(config_src, encoding="utf-8")
 
-    fs = ctx.feasibility_steps or ""
-    (out / "feasibility_steps.py").write_text(
-        '"""Auto-generated step-by-step feasibility narrative (prompt aid)."""\n'
-        f"FEASIBILITY_STEPS_PY = r'''{fs}'''\n", encoding="utf-8")
+    # feasibility_steps.py is an OPTIONAL prompt aid; spec.py imports it with a
+    # graceful fallback to "". Only write it when one was generated.
+    if ctx.feasibility_steps:
+        (out / "feasibility_steps.py").write_text(
+            '"""Auto-generated step-by-step feasibility narrative (prompt aid)."""\n'
+            f"FEASIBILITY_STEPS_PY = r'''{ctx.feasibility_steps}'''\n", encoding="utf-8")
 
     if ctx.extras_code:
         (out / "extras.py").write_text(ctx.extras_code, encoding="utf-8")

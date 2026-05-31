@@ -23,7 +23,6 @@ def eval_func(**kw):
     if total > kw["cap"]:
         raise ValueError("capacity exceeded")
     return float(kw["cap"] - total)
-FEASIBILITY_STEPS_PY = "def is_feasible(solution):\\n    return True, None"
 def infeasible_make_solution(instance):
     n = len(instance["items"])
     return {"chosen": list(range(n)) + list(range(n))}
@@ -33,8 +32,8 @@ def test_generate_contract_end_to_end(fake_llm, tmp_path):
     inst = tmp_path / "instances"; inst.mkdir()
     (inst / "k1.txt").write_text("10 3 4 5 6")
     out = tmp_path / "problems" / "knap"
-    # each designer calls LLM twice (generate + reflect)
-    llm = fake_llm([I_RESP, I_RESP, O_RESP, O_RESP, T_RESP, T_RESP])
+    # slim pipeline: one LLM call per designer (I, O, T)
+    llm = fake_llm([I_RESP, O_RESP, T_RESP])
     result_path = generate_contract(
         slug="knap", nl_description="0/1 knapsack",
         instances_dir=str(inst), out_dir=str(out),
@@ -43,4 +42,5 @@ def test_generate_contract_end_to_end(fake_llm, tmp_path):
     )
     assert (out / "spec.py").exists()
     assert (out / "config.py").exists()
-    assert (out / "feasibility_steps.py").exists()
+    # slim version: feasibility_steps.py is not generated
+    assert not (out / "feasibility_steps.py").exists()

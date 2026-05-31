@@ -11,7 +11,7 @@ def load_data(path):
 
 def test_design_input_fills_context(fake_llm, tmp_path):
     f = tmp_path / "inst1.txt"; f.write_text("raw bytes")
-    llm = fake_llm([CANNED, CANNED])
+    llm = fake_llm([CANNED])  # slim: one generation call, then smoke
     ctx = ContractContext(nl_description="a knapsack", sample_instance_text="raw bytes")
     design_input(ctx, llm, instance_paths=[str(f)],
                  required_keys=["cap", "items"], example_slug="aircraft_landing")

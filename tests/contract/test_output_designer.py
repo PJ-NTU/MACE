@@ -8,7 +8,7 @@ def make_solution(instance):
 ```'''
 
 def test_design_output_fills_context(fake_llm):
-    llm = fake_llm([CANNED, CANNED])  # generate + reflect
+    llm = fake_llm([CANNED])  # slim: one generation call, then smoke
     ctx = ContractContext(nl_description="knapsack", sample_instance_text="raw")
     ctx.input_schema = "cap:int, items:list"
     ctx.load_data_code = "def load_data(p):\n    return {'cap':10,'items':[3,4]}"

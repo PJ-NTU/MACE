@@ -36,16 +36,12 @@ def design_input(ctx, llm_client, instance_paths, required_keys, example_slug,
         example=_example_block(example_slug),
     )
 
-    def reflect(draft):
-        return (f"{gen_prompt}\n\n# Your draft\n```python\n{draft}\n```\n\n"
-                f"# Reflection\nCompare your load_data output dict against the raw "
-                f"sample instance. List any field you missed, mis-typed, or invented, "
-                f"then output the corrected DESCRIPTION + load_data in one ```python block.")
-
     def smoke(draft):
         return smoke_input(draft, instance_paths, required_keys)
 
-    src = run_stage(llm_client, gen_prompt, reflect, smoke, i_rep=i_rep,
+    # Slim pipeline: one generation call, then smoke + bounded repair. The
+    # "reflection" self-check is folded into the prompt (no extra LLM round-trip).
+    src = run_stage(llm_client, gen_prompt, lambda d: None, smoke, i_rep=i_rep,
                     stage_name="Input Designer")
     ctx.load_data_code = src
     ctx.description = _extract_description(src) or ctx.nl_description
