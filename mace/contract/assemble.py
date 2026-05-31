@@ -64,4 +64,11 @@ def build_spec(ctx, slug: str, tmp_dir: str):
     s = importlib.util.spec_from_file_location(f"_ctr_spec_{slug}_{id(ctx)}", spec_path)
     mod = importlib.util.module_from_spec(s)
     s.loader.exec_module(mod)
-    return mod.SPEC
+    spec_obj = mod.SPEC
+    # stash the underlying config module so callers can instrument tools (e.g.
+    # the helper validator wraps a helper to confirm it is actually invoked).
+    try:
+        spec_obj._cfg_module = mod._cfg
+    except Exception:
+        pass
+    return spec_obj

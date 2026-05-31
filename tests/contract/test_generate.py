@@ -30,15 +30,21 @@ HEUR = '''```python
 def solve(instance, tools, time_limit_s):
     return {"picked": [0]}
 ```'''
+# helper validation requires the heuristic to actually CALL the helper tool
+HEUR_USES_HELPER = '''```python
+def solve(instance, tools, time_limit_s):
+    i = tools['lightest_item']()
+    return {"picked": [i]}
+```'''
 
 
 def test_generate_contract_end_to_end(fake_llm, tmp_path):
     inst = tmp_path / "instances"; inst.mkdir()
     (inst / "k1.txt").write_text("3\n5 2 8")
     out = tmp_path / "problems" / "knap"
-    # I(gen+review) O(gen+review) T(gen+heuristic) helper(gen+heuristic) final(heuristic)
+    # I(gen+review) O(gen+review) T(gen+heuristic) helper(gen + per-helper heuristic) final(heuristic)
     llm = fake_llm([I_GEN, "APPROVED", O_GEN, "APPROVED",
-                    T_GEN, HEUR, HELPER_GEN, HEUR, HEUR])
+                    T_GEN, HEUR, HELPER_GEN, HEUR_USES_HELPER, HEUR])
     generate_contract(slug="knap", nl_description="pick items, min weight",
                       instances_dir=str(inst), out_dir=str(out),
                       llm_client=llm, example_slug="aircraft_landing")
