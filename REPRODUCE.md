@@ -138,3 +138,30 @@ size, `--I-iter` evolution iterations, `--T-max` per-instance runtime budget (s)
   complementary portfolio is designed so at least one heuristic covers each
   instance, and `run_solve` scores a raising heuristic as infeasible rather than
   crashing.
+
+---
+
+## Regenerating a problem contract (Stage Zero)
+
+MACE's I-O-T problem contract for a new problem can be regenerated automatically
+from a natural-language description and raw instance files using `mace/contract/`,
+closing the loop on the paper's "the problem contract is constructed automatically
+by an LLM agent" claim. Each of the three designers (Input, Output, Tool) is gated
+by reflection and a smoke test with bounded auto-repair, and the whole contract must
+pass an end-to-end gate (the same smoke test used for heuristics) before it is
+written out.
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+python scripts/generate_contract.py \
+    --slug my_problem \
+    --description path/to/description.txt \
+    --instances problems/my_problem/instances \
+    --keys field_a field_b \
+    --model google/gemini-3.1-flash-lite \
+    --example aircraft_landing
+```
+
+The unit tests run fully offline (`python -m pytest tests/contract/ -v`); the
+faithfulness integration test (`tests/contract/test_faithfulness_integration.py`)
+runs only when `OPENROUTER_API_KEY` is set.

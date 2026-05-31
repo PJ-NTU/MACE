@@ -7,3 +7,6 @@ openai>=1.0        # LLM client (OpenRouter, OpenAI-compatible API)
 
 # Optional
 # gurobipy         # mip auto-uses Gurobi if installed; otherwise falls back to CBC
+
+# Dev / tests
+pytest>=7.0
