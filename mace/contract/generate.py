@@ -15,9 +15,16 @@ from .validate import ContractGenerationError
 logger = logging.getLogger(__name__)
 
 
-def _read_sample(instance_paths) -> str:
-    txt = Path(instance_paths[0]).read_text(encoding="utf-8", errors="replace")
-    return txt[:8000]
+def _read_sample(instance_paths, max_files: int = 2, max_chars: int = 16000) -> str:
+    """Concatenate the full text of up to `max_files` instance files, each
+    labelled with its filename, so the Input Designer sees the real byte layout
+    (not just a truncated first file). Capped at `max_chars` total."""
+    blocks = []
+    for p in instance_paths[:max_files]:
+        txt = Path(p).read_text(encoding="utf-8", errors="replace")
+        blocks.append(f"# ===== file: {Path(p).name} =====\n{txt}")
+    joined = "\n\n".join(blocks)
+    return joined[:max_chars]
 
 
 def generate_contract(slug, nl_description, instances_dir, out_dir, llm_client,
@@ -25,6 +32,9 @@ def generate_contract(slug, nl_description, instances_dir, out_dir, llm_client,
                       direction="min", i_rep=3, smoke_time_limit_s=30.0):
     instances_dir = Path(instances_dir)
     instance_paths = sorted(str(p) for p in instances_dir.glob("*") if p.is_file())
+    if not instance_paths:
+        # Instance files may live in subdirectories (e.g. train/ test/). Recurse.
+        instance_paths = sorted(str(p) for p in instances_dir.rglob("*") if p.is_file())
     if not instance_paths:
         raise ContractGenerationError(f"no instance files found in {instances_dir}")
     required_keys = required_keys or []

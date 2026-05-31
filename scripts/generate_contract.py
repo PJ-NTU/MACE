@@ -46,7 +46,9 @@ def main():
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         sys.exit("OPENROUTER_API_KEY not set")
-    llm = OpenRouterClient(api_key=key, model=args.model)
+    # 16k completion cap: the Tool Designer's eval_func can be long for
+    # many-constraint problems; the default 8k truncates and breaks generation.
+    llm = OpenRouterClient(api_key=key, model=args.model, max_tokens=16384)
 
     path = generate_contract(
         slug=args.slug, nl_description=nl, instances_dir=args.instances,
