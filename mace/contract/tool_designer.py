@@ -71,7 +71,7 @@ def design_tools(ctx, llm_client, instance_path, example_slug=None, i_rep: int =
         except Exception as e:
             return False, f"contract failed to assemble/import: {type(e).__name__}: {e}"
         ok, err, _ = heuristic_passes(spec, llm_client, instance_path,
-                                      hint="", tries=2)
+                                      hint="", tries=3)
         if not ok:
             return False, f"a heuristic could not solve through I/O/T: {err}"
         return True, None

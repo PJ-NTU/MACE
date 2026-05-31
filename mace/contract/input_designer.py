@@ -37,24 +37,19 @@ def _extract_schema_comment(src: str) -> str:
 
 
 def _extract_load_data_with_imports(src: str) -> str | None:
-    """Pull just the module-level imports + the load_data function out of `src`,
-    so a whole config.py (eval_func, solve, etc.) can be passed in and only its
-    load_data is adopted."""
+    """Adopt the WHOLE config module (imports + every function/constant) as long
+    as it defines load_data. load_data often calls sibling helpers in the same
+    file (e.g. load_data2, parsing utilities), so extracting only load_data drops
+    its dependencies and raises NameError. Keeping the whole source is safe: the
+    native spec.py uses our generated is_feasible/objective, so any extra
+    functions (eval_func, solve, norm_score, ...) are harmless."""
     try:
         tree = ast.parse(src)
     except SyntaxError:
         return None
-    imports, func = [], None
-    for node in tree.body:
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            seg = ast.get_source_segment(src, node)
-            if seg:
-                imports.append(seg)
-        elif isinstance(node, ast.FunctionDef) and node.name == "load_data":
-            func = ast.get_source_segment(src, node)
-    if func is None:
+    if not any(isinstance(n, ast.FunctionDef) and n.name == "load_data" for n in tree.body):
         return None
-    return ("\n".join(imports) + "\n\n" + func).strip() if imports else func
+    return src.strip()
 
 
 def adopt_input(ctx, load_data_code, instance_paths):

@@ -12,10 +12,13 @@ def _gen_heuristic(llm_client, spec, hint: str = "") -> str:
     body = (
         "# Task — write a SIMPLE solver to exercise this contract\n"
         "Write a `solve(instance, tools, time_limit_s)` that returns a FEASIBLE "
-        "solution dict. Keep it simple (greedy / constructive is fine) — the goal "
-        "is to exercise the contract end to end, not to be optimal. Use "
-        "`tools['is_feasible']` and `tools['objective']`, and any other listed "
-        "tools, as needed.\n"
+        "solution dict. FEASIBILITY IS THE ONLY GOAL — a suboptimal but feasible "
+        "solution is SUCCESS; an infeasible one is FAILURE. Respect EVERY "
+        "constraint. Build the solution constructively and, before returning, call "
+        "`ok, msg = tools['is_feasible'](sol)`; if not ok, read `msg` and REPAIR the "
+        "solution (reassign/adjust) and re-check, looping until it is feasible. "
+        "Optimality does not matter. Use `tools['objective']` and any other listed "
+        "tools as needed.\n"
         + (hint or "")
     )
     prompt = build_prompt(spec, body)
