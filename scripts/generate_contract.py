@@ -35,6 +35,10 @@ def main():
     ap.add_argument("--example", default="aircraft_landing")
     ap.add_argument("--direction", choices=["min", "max"], default="min")
     ap.add_argument("--i-rep", type=int, default=3)
+    ap.add_argument("--load-data", default=None,
+                    help="path to a .py file defining the correct load_data() (e.g. an "
+                         "existing config.py). When given, the Input Designer adopts it "
+                         "verbatim (machine-checked) and skips the LLM generator + reviewer.")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -48,10 +52,13 @@ def main():
     # for many-constraint problems; the default 8k truncates and breaks generation.
     llm = OpenRouterClient(api_key=key, model=args.model, max_tokens=16384)
 
+    load_data_code = Path(args.load_data).read_text(encoding="utf-8") if args.load_data else None
+
     path = generate_contract(
         slug=args.slug, nl_description=nl, instances_dir=args.instances,
         out_dir=out, llm_client=llm,
         example_slug=args.example, direction=args.direction, i_rep=args.i_rep,
+        load_data_code=load_data_code,
     )
     print(f"Contract written to {path}")
     print(f"LLM stats: {llm.stats()}")

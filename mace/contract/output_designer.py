@@ -41,12 +41,20 @@ def design_output(ctx, llm_client, example_slug, i_rep: int = 3):
             return False, f"[machine] output draft import failed: {type(e).__name__}: {e}"
         if not hasattr(mod, "make_solution"):
             return False, "[machine] no make_solution() defined"
-        if _extract_str_const(draft, "OUTPUT_SCHEMA") is None:
+        schema = _extract_str_const(draft, "OUTPUT_SCHEMA")
+        if schema is None:
             return False, "[machine] missing OUTPUT_SCHEMA string"
+        # Review ONLY the solution schema (structure). make_solution is just a
+        # trivial placeholder — its feasibility is validated later by the tool
+        # gate; do NOT let the reviewer critique its strategy/optimality.
         ok2, fb = review(
-            llm_client, "output (solution) schema + trivial make_solution",
-            ctx.nl_description, draft,
-            extra_context=f"# Locked input schema\n{ctx.input_schema or ''}",
+            llm_client, "output (solution) schema",
+            ctx.nl_description, f'OUTPUT_SCHEMA = """{schema}"""',
+            extra_context=(f"# Locked input schema\n{ctx.input_schema or ''}\n\n"
+                           "Judge ONLY whether this OUTPUT schema can correctly and "
+                           "completely represent a VALID SOLUTION's structure (right "
+                           "keys, shapes, indexing). Do NOT consider solver quality or "
+                           "any algorithm — there is no solver here, only the schema."),
         )
         if not ok2:
             return False, f"[reviewer] {fb}"

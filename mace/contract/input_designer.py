@@ -5,10 +5,13 @@ independent reviewer LLM that judges whether the schema correctly captures the
 problem. Either failing triggers bounded repair."""
 from __future__ import annotations
 import ast
+import logging
 from pathlib import Path
 
-from .validate import run_stage, smoke_input
+from .validate import run_stage, smoke_input, ContractGenerationError
 from .reviewer import review
+
+logger = logging.getLogger(__name__)
 
 _PROMPT = (Path(__file__).parent / "prompts" / "input_designer.md").read_text(encoding="utf-8")
 _EXAMPLE_ROOT = Path(__file__).resolve().parents[2] / "problems"
@@ -31,6 +34,52 @@ def _extract_description(src: str) -> str | None:
 def _extract_schema_comment(src: str) -> str:
     lines = [ln[1:].strip() for ln in src.splitlines() if ln.lstrip().startswith("#")]
     return "\n".join(lines)
+
+
+def _extract_load_data_with_imports(src: str) -> str | None:
+    """Pull just the module-level imports + the load_data function out of `src`,
+    so a whole config.py (eval_func, solve, etc.) can be passed in and only its
+    load_data is adopted."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return None
+    imports, func = [], None
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            seg = ast.get_source_segment(src, node)
+            if seg:
+                imports.append(seg)
+        elif isinstance(node, ast.FunctionDef) and node.name == "load_data":
+            func = ast.get_source_segment(src, node)
+    if func is None:
+        return None
+    return ("\n".join(imports) + "\n\n" + func).strip() if imports else func
+
+
+def adopt_input(ctx, load_data_code, instance_paths):
+    """Adopt a user-supplied load_data verbatim instead of generating one.
+
+    Skips the LLM generator AND the reviewer — the user already knows the data
+    format. The machine smoke check still runs (load_data must actually parse the
+    real instances), so a wrong parser is still caught."""
+    clean = _extract_load_data_with_imports(load_data_code)
+    if clean is None:
+        raise ContractGenerationError(
+            "[Input Designer] user-supplied source defines no load_data()")
+    ok, err = smoke_input(clean, instance_paths, [])
+    if not ok:
+        raise ContractGenerationError(
+            f"[Input Designer] user-supplied load_data failed machine parse: {err}")
+    ctx.load_data_code = clean
+    # Use the user's own --description here, NOT any DESCRIPTION embedded in the
+    # adopted file: the latter may promise tools/helpers that don't exist yet and
+    # would mislead the downstream T/H heuristic-validation prompts.
+    ctx.description = ctx.nl_description
+    ctx.input_schema = _extract_schema_comment(clean) or ctx.nl_description
+    logger.info("[Input Designer] adopted user-supplied load_data "
+                "(machine-checked; reviewer skipped)")
+    return ctx
 
 
 def design_input(ctx, llm_client, instance_paths, example_slug, i_rep: int = 3):
