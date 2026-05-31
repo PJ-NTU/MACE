@@ -143,21 +143,38 @@ size, `--I-iter` evolution iterations, `--T-max` per-instance runtime budget (s)
 
 ## Regenerating a problem contract (Stage Zero)
 
-MACE's I-O-T problem contract for a NEW problem can be generated automatically
-from a natural-language description and raw instance files using `mace/contract/`,
-closing the loop on the paper's "the problem contract is constructed automatically
-by an LLM agent" claim. A new problem has no pre-existing evaluator, so the tool
-library T is authored directly as separate functions — `is_feasible` and
-`objective` (plus a few domain helpers) — with no `eval_func`. The pipeline:
+Given a problem's natural-language description, its **known input data contract**
+(`load_data` — for a CO problem the input format is already known, e.g. provided
+by the benchmark or by the problem designer), and a few instance files,
+`mace/contract/` automatically constructs the rest of the I-O-T contract: the
+output schema, the tool library T (`is_feasible` + `objective`, plus a few domain
+helpers — no `eval_func`), validated end to end by real LLM-written heuristics.
 
-- **I (input schema + `load_data`)** and **O (solution schema + a trivial
-  `make_solution`)** are each generated, then audited by an independent reviewer
-  LLM for correctness (machine checks run too: `load_data` must parse every instance).
-- **T core (`is_feasible` + `objective`)** is validated the way MACE actually
-  uses a contract: an LLM writes a real heuristic that runs through I → O → T; if a
-  solver can produce a feasible, scored solution, the core works.
-- **Helpers** (a few domain tools) are validated by a heuristic that calls them.
-- A final heuristic gate runs the whole assembled contract before it is written out.
+The pipeline:
+
+- **I — input contract (known, adopted).** The `load_data` is supplied (via
+  `--load-data`, typically the problem's existing `config.py`); it is adopted
+  verbatim after a machine check that it actually parses the instances. (Only when
+  no `load_data` is supplied does an LLM generate one + an independent reviewer
+  audit it.) A sample instance is then parsed and its **real structure** (actual
+  keys, types, shapes) is introspected and fed to every later stage, so they use
+  the true instance keys instead of guessing.
+- **O — output schema + trivial `make_solution`.** Generated; an independent
+  reviewer LLM judges ONLY whether the solution *schema* is structurally valid
+  (the placeholder solver's strategy is not reviewed — its feasibility is checked
+  later by T).
+- **T core — `is_feasible(instance, solution)` + `objective(instance, solution)`**
+  (no `eval_func`). MANDATORY: validated the way MACE actually uses a contract — an
+  LLM writes a real heuristic that runs through I → O → T; it must produce a
+  feasible, scored solution. Repaired up to the budget; if it cannot pass, the
+  contract is rejected.
+- **Helpers — optional, two-phase.** Phase 1 plans a small non-overlapping set
+  (names + purposes, one LLM call). Phase 2 implements and validates EACH helper
+  individually, with a heuristic required to actually call it (instrumented to
+  confirm invocation). A helper that cannot be fixed within the budget is
+  DISCARDED — helpers never fail the pipeline.
+- **Final gate.** One more real heuristic runs through the fully assembled contract
+  before it is written out.
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-...
@@ -165,14 +182,17 @@ python scripts/generate_contract.py \
     --slug my_problem \
     --description path/to/description.txt \
     --instances problems/my_problem/instances \
+    --load-data problems/my_problem/config.py \
     --model google/gemini-2.5-flash \
     --example aircraft_landing
 ```
 
-Note: validating that a heuristic runs through the contract proves it is usable
-and self-consistent; the semantic correctness of `is_feasible`/`objective` for a
-brand-new problem (no external ground truth) ultimately rests on the description
-and human review.
+Scope of the automation: the input data contract is taken as known (it always is
+for a real CO problem); MACE then **automatically constructs the output schema,
+the tool library T, and the heuristic portfolio H** on top of it. Validating that
+a heuristic runs through the contract proves it is usable and self-consistent; the
+semantic correctness of `is_feasible`/`objective` for a brand-new problem (no
+external ground truth) ultimately rests on the description and human review.
 
 The unit tests run fully offline (`python -m pytest tests/contract/ -v`); the
 faithfulness integration test (`tests/contract/test_faithfulness_integration.py`)
