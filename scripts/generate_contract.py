@@ -7,7 +7,7 @@ Example:
       --slug my_problem \
       --description path/to/description.txt \
       --instances problems/my_problem/instances \
-      --model google/gemini-3.1-flash-lite \
+      --model google/gemini-3.5-flash \
       --example aircraft_landing
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ def main():
     ap.add_argument("--description", required=True, help="path to NL description .txt")
     ap.add_argument("--instances", required=True, help="dir of raw instance files")
     ap.add_argument("--out", default=None, help="output dir (default problems/<slug>)")
-    ap.add_argument("--model", default="google/gemini-3.1-flash-lite")
+    ap.add_argument("--model", default="google/gemini-3.5-flash")
     ap.add_argument("--example", default="aircraft_landing")
     ap.add_argument("--direction", choices=["min", "max"], default="min")
     ap.add_argument("--i-rep", type=int, default=3)
