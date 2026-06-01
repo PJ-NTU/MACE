@@ -126,7 +126,7 @@ the shipped one** — point `--out` elsewhere to keep it.
 | Packing & cutting | bin_packing_one_dimensional, constrained_guillotine_cutting, constrained_non_guillotine_cutting, container_loading, container_loading_with_weight_restrictions, packing_unequal_circles, packing_unequal_circles_area, packing_unequal_rectangles_and_squares, packing_unequal_rectangles_and_squares_area, unconstrained_guillotine_cutting |
 | Location & assignment | assignment_problem, capacitated_warehouse_location, corporate_structuring, equitable_partitioning_problem, generalised_assignment_problem, p_median_capacitated, p_median_uncapacitated, set_covering, set_partitioning, uncapacitated_warehouse_location |
 | Selection & knapsack | assortment_problem, multidimensional_knapsack_problem, multi_demand_multidimensional_knapsack_problem |
-| Novel (port logistics) | port_scheduling_problem, multi_tugboat_routing_and_scheduling_problem, multi_base_tugboat_routing_and_scheduling_problem, multi_tugboat_routing_problem_with_variable_speed |
+| Novel problems | port_scheduling_problem, multi_tugboat_routing_and_scheduling_problem, multi_base_tugboat_routing_and_scheduling_problem, multi_tugboat_routing_problem_with_variable_speed |
 
 The four novel problems also include a `build_instances.py` instance generator.
 
