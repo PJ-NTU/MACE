@@ -3,6 +3,11 @@
 Reference implementation of the paper **"Large Language Models Discover
 Complementary Heuristics for Combinatorial Optimization."**
 
+> **Just want to see it run?** Open the one-click Colab notebook
+> [`notebooks/reproduce.ipynb`](https://colab.research.google.com/github/PJ-NTU/MACE/blob/main/notebooks/reproduce.ipynb)
+> — it reproduces the paper's portfolios in your browser with no local install.
+> For a guided local walkthrough see [REPRODUCE.md](REPRODUCE.md).
+
 MACE turns a natural-language description of a combinatorial-optimization (CO)
 problem into a portfolio of executable heuristics, without per-problem human
 engineering. It works in two stages:
@@ -18,6 +23,14 @@ engineering. It works in two stages:
   ranking-based MILP selection that keeps a *complementary* set of specialists
   covering every instance.
 
+The Stage-One I-O-T contract is generated automatically by MACE's contract
+generator (`mace/contract/`, run via `scripts/generate_contract.py`): it turns a
+problem's natural-language description and instance files into a drop-in contract
+— the output schema, the tool library (`is_feasible` / `objective`), and a few
+domain helpers — each module validated by smoke testing before heuristic
+generation begins. Every shipped problem already includes one, so running the
+generator is optional.
+
 This repository ships the framework plus **40 problems** (36 classical
 CO-Bench problems + 4 structurally novel port-logistics problems), each with its
 contract, instance data, and the evolved 10-heuristic portfolio from the paper.
@@ -28,6 +41,7 @@ contract, instance data, and the evolved 10-heuristic portfolio from the paper.
 MACE/
 ├── mace/                     # Framework core
 │   ├── framework.py          #   ProblemSpec / run_solve / load_heuristic
+│   ├── contract/             #   Stage One: auto-generate the I-O-T contract from NL
 │   └── evolution/            #   Stage Two: 7 operators, MILP selection, LLM client
 │       ├── evolve.py, milp_selection.py, rank_matrix.py, ...
 │       └── operators/        #   o1..o7
@@ -40,6 +54,7 @@ MACE/
 ├── instances.json            # manifest: the exact 7109 instances (per problem)
 ├── scripts/
 │   ├── run_mace.py           # run MACE end-to-end on one problem (needs API key)
+│   ├── generate_contract.py  # auto-generate a problem's I-O-T contract (optional; needs API key)
 │   ├── evaluate_portfolio.py # score the shipped portfolio (no API key)
 │   └── verify_instances.py   # check the repo supports exactly 7109 instances
 └── docs/                     # ARCHITECTURE.md, DATA.md
@@ -80,6 +95,26 @@ Output is written to `runs/<problem>/<run-tag>/`. Key flags: `--N` portfolio
 size, `--I-iter` evolution iterations, `--T-max` per-instance runtime budget (s),
 `--model` backbone (default `google/gemini-3-flash-preview`).
 
+**3. (Optional) Auto-generate a problem's contract (needs an OpenRouter API key).**
+The Stage-One I-O-T contract is produced automatically from a natural-language
+description plus instance files (output schema + `is_feasible` / `objective` +
+domain helpers); every shipped problem already includes one:
+
+```bash
+python scripts/generate_contract.py \
+    --slug aircraft_landing \
+    --description path/to/description.txt \
+    --instances problems/aircraft_landing/instances \
+    --load-data problems/aircraft_landing/config.py \
+    --out runs/aircraft_landing_contract
+```
+
+Each generated module is admitted only after a real LLM-written heuristic solves
+through it end to end. `--load-data` (a known parser) makes the Input Designer
+adopt it verbatim and skip input generation; omit it to generate the input schema
+too. Without `--out` the contract is written to `problems/<slug>/`, **overwriting
+the shipped one** — point `--out` elsewhere to keep it.
+
 ## Problems
 
 `problems/<slug>/` — slug is the folder name. The 40 problems:
@@ -97,8 +132,8 @@ The four novel problems also include a `build_instances.py` instance generator.
 
 ## Data
 
-The repository ships the **exact instance set used in the paper — 7109
-instances across the 40 problems** — in the original OR-Library file formats
+The repository ships the **exact test instance set used in the paper — 7109
+test instances across the 40 problems** — in the original OR-Library file formats
 under `problems/<slug>/instances/`. Many classical files are multi-instance
 (one file holds several cases, addressed as `file::idx`), so the file count is
 smaller than the instance count. The authoritative list is `instances.json`
