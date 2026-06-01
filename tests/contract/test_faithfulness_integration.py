@@ -9,7 +9,7 @@ pytestmark = pytest.mark.skipif(
 def test_regenerate_problem_passes_gate(tmp_path):
     """Regenerate a problem's contract from its natural-language DESCRIPTION using
     a DIFFERENT reference example, and confirm the full I->O->T->helpers pipeline
-    plus the heuristic gate passes. Reproducibility evidence for the paper's
+    plus the final self-check passes. Reproducibility evidence for the paper's
     'the contract is constructed automatically by an LLM' claim."""
     import sys
     sys.path.insert(0, ".")
@@ -26,5 +26,5 @@ def test_regenerate_problem_passes_gate(tmp_path):
         slug="tsp_regen", nl_description=cfg.DESCRIPTION,
         instances_dir="problems/travelling_salesman_problem/instances",
         out_dir=str(out), llm_client=llm, example_slug="aircraft_landing")
-    assert (out / "spec.py").exists()      # gate already ran inside generate_contract
+    assert (out / "spec.py").exists()      # final self-check already ran inside generate_contract
     assert (out / "config.py").exists()

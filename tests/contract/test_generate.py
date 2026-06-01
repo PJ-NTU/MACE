@@ -29,10 +29,6 @@ def lightest_item(instance):
     w = instance["weights"]
     return min(range(len(w)), key=lambda i: w[i])
 ```'''
-HEUR = '''```python
-def solve(instance, tools, time_limit_s):
-    return {"picked": [0]}
-```'''
 # helper validation requires the heuristic to actually CALL the helper tool
 HEUR_USES_HELPER = '''```python
 def solve(instance, tools, time_limit_s):
@@ -46,9 +42,9 @@ def test_generate_contract_end_to_end(fake_llm, tmp_path):
     (inst / "k1.txt").write_text("3\n5 2 8")
     out = tmp_path / "problems" / "knap"
     # I(gen+review) O(gen+review) T(gen; passes via feasible make_solution fast path)
-    # helper(plan+impl+heuristic) final(heuristic)
+    # helper(plan+impl+heuristic) final(deterministic placeholder self-check, no LLM)
     llm = fake_llm([I_GEN, "APPROVED", O_GEN, "APPROVED",
-                    T_GEN, HELPER_PLAN, HELPER_IMPL, HEUR_USES_HELPER, HEUR])
+                    T_GEN, HELPER_PLAN, HELPER_IMPL, HEUR_USES_HELPER])
     generate_contract(slug="knap", nl_description="pick items, min weight",
                       instances_dir=str(inst), out_dir=str(out),
                       llm_client=llm, example_slug="aircraft_landing")
