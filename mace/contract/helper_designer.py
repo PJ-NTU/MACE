@@ -23,6 +23,7 @@ from .heuristic_check import heuristic_passes
 logger = logging.getLogger(__name__)
 
 _PLAN_PROMPT = (Path(__file__).parent / "prompts" / "helper_designer.md").read_text(encoding="utf-8")
+_PLAN_ITER_PROMPT = (Path(__file__).parent / "prompts" / "helper_designer_iter.md").read_text(encoding="utf-8")
 _IMPL_PROMPT = (Path(__file__).parent / "prompts" / "helper_impl.md").read_text(encoding="utf-8")
 
 
@@ -47,11 +48,7 @@ def _entry_to_dict(node):
     return {}
 
 
-def _plan_helpers(llm_client, ctx):
-    """Phase 1: return [(name, purpose)] — at most 3, non-overlapping."""
-    prompt = _PLAN_PROMPT.format(nl=ctx.nl_description, input_schema=ctx.input_schema or "",
-                                 output_schema=ctx.output_schema or "")
-    code = extract_python(llm_client.chat(prompt))
+def _parse_plan(code, cap):
     try:
         tree = ast.parse(code)
     except SyntaxError:
@@ -61,13 +58,31 @@ def _plan_helpers(llm_client, ctx):
                 isinstance(t, ast.Name) and t.id == "HELPERS_PLAN" for t in node.targets) \
                 and isinstance(node.value, (ast.List, ast.Tuple)):
             out = []
-            for elt in node.value.elts[:3]:
+            for elt in node.value.elts[:cap]:
                 d = _entry_to_dict(elt)
                 name = d.get("name")
                 if isinstance(name, str) and name.isidentifier():
                     out.append((name, str(d.get("purpose", ""))))
             return out
     return []
+
+
+def _plan_helpers(llm_client, ctx):
+    """Phase 1: return [(name, purpose)] — at most 3, non-overlapping."""
+    prompt = _PLAN_PROMPT.format(nl=ctx.nl_description, input_schema=ctx.input_schema or "",
+                                 output_schema=ctx.output_schema or "")
+    return _parse_plan(extract_python(llm_client.chat(prompt)), 3)
+
+
+def _plan_next_helper(llm_client, ctx, accepted, purpose_of):
+    """One planning round of the iterative loop: propose exactly ONE new helper,
+    conditioned on the names and purposes (not the code) of all helpers admitted
+    so far, so each new tool fills a gap the existing set leaves open."""
+    existing = "\n".join(f"- `{n}`: {purpose_of.get(n, '')}" for n in accepted) or "(none yet)"
+    prompt = _PLAN_ITER_PROMPT.format(nl=ctx.nl_description, input_schema=ctx.input_schema or "",
+                                      output_schema=ctx.output_schema or "",
+                                      existing=existing)
+    return _parse_plan(extract_python(llm_client.chat(prompt)), 1)
 
 
 def _implement_helper(llm_client, ctx, name, purpose) -> str:
@@ -120,58 +135,122 @@ def _validate_one_helper(spec, cfg_module, name, llm_client, instance_path, trie
         setattr(cfg_module, name, orig)
 
 
+def _tools_desc(base_tools, pairs):
+    return base_tools + [
+        {"name": n, "input": "solution/partial args (instance is bound)",
+         "output": "...", "purpose": p} for n, p in pairs
+    ]
+
+
+def _admit_helper(ctx, llm_client, instance_path, accepted, purpose_of, base_tools,
+                  name, purpose, i_rep):
+    """Implement one planned helper, then validate-repair up to i_rep times.
+    Returns (True, validated_source) or (False, None) if discarded."""
+    try:
+        src = _implement_helper(llm_client, ctx, name, purpose)
+    except Exception as e:
+        logger.info("Helper Designer: DISCARDING '%s' (implement raised: %s)", name, e)
+        return False, None
+    ok, err = False, "not validated"
+    for attempt in range(i_rep + 1):
+        trial_sources = {**accepted, name: src}
+        trial = replace(
+            ctx, helpers_code="\n\n".join(trial_sources.values()),
+            helper_names=list(trial_sources.keys()),
+            tools_description=_tools_desc(base_tools,
+                                          [(n, purpose_of.get(n, "")) for n in trial_sources]))
+        try:
+            tmp = Path(tempfile.mkdtemp()) / "helper_trial"
+            spec = build_spec(trial, "helper_trial", str(tmp))
+            cfg_module = spec._cfg_module
+        except Exception as e:
+            err = f"assemble/import failed: {type(e).__name__}: {e}"
+        else:
+            ok, err = _validate_one_helper(spec, cfg_module, name, llm_client, instance_path)
+            if ok:
+                break
+        if attempt < i_rep:
+            try:
+                src = _repair_helper(llm_client, name, src, err)
+            except Exception as e:
+                err = f"repair raised: {type(e).__name__}: {e}"
+    if ok:
+        logger.info("Helper Designer: helper '%s' accepted", name)
+        return True, src
+    logger.info("Helper Designer: DISCARDING helper '%s' after %d repairs: %s",
+                name, i_rep, err)
+    return False, None
+
+
+def _write_back(ctx, accepted, purpose_of, base_tools):
+    if accepted:
+        ctx.helpers_code = "\n\n".join(accepted.values())
+        ctx.helper_names = list(accepted.keys())
+        ctx.tools_description = _tools_desc(base_tools,
+                                            [(n, purpose_of.get(n, "")) for n in accepted])
+    else:
+        ctx.helpers_code, ctx.helper_names, ctx.tools_description = None, [], base_tools
+    return ctx
+
+
 def design_helpers(ctx, llm_client, instance_path, i_rep: int = 3):
     base_tools = list(ctx.tools_description or [])
-
-    def _tools_desc(pairs):
-        return base_tools + [
-            {"name": n, "input": "solution/partial args (instance is bound)",
-             "output": "...", "purpose": p} for n, p in pairs
-        ]
-
     plan = _plan_helpers(llm_client, ctx)
     purpose_of = dict(plan)
     accepted: dict[str, str] = {}  # name -> validated source
 
     for name, purpose in plan:
-        try:
-            src = _implement_helper(llm_client, ctx, name, purpose)
-        except Exception as e:
-            logger.info("Helper Designer: DISCARDING '%s' (implement raised: %s)", name, e)
-            continue
-        ok, err = False, "not validated"
-        for attempt in range(i_rep + 1):
-            trial_sources = {**accepted, name: src}
-            trial = replace(
-                ctx, helpers_code="\n\n".join(trial_sources.values()),
-                helper_names=list(trial_sources.keys()),
-                tools_description=_tools_desc([(n, purpose_of.get(n, "")) for n in trial_sources]))
-            try:
-                tmp = Path(tempfile.mkdtemp()) / "helper_trial"
-                spec = build_spec(trial, "helper_trial", str(tmp))
-                cfg_module = spec._cfg_module
-            except Exception as e:
-                err = f"assemble/import failed: {type(e).__name__}: {e}"
-            else:
-                ok, err = _validate_one_helper(spec, cfg_module, name, llm_client, instance_path)
-                if ok:
-                    break
-            if attempt < i_rep:
-                try:
-                    src = _repair_helper(llm_client, name, src, err)
-                except Exception as e:
-                    err = f"repair raised: {type(e).__name__}: {e}"
+        ok, src = _admit_helper(ctx, llm_client, instance_path, accepted, purpose_of,
+                                base_tools, name, purpose, i_rep)
         if ok:
             accepted[name] = src
-            logger.info("Helper Designer: helper '%s' accepted", name)
-        else:
-            logger.info("Helper Designer: DISCARDING helper '%s' after %d repairs: %s",
-                        name, i_rep, err)
 
-    if accepted:
-        ctx.helpers_code = "\n\n".join(accepted.values())
-        ctx.helper_names = list(accepted.keys())
-        ctx.tools_description = _tools_desc([(n, purpose_of.get(n, "")) for n in accepted])
-    else:
-        ctx.helpers_code, ctx.helper_names, ctx.tools_description = None, [], base_tools
-    return ctx
+    return _write_back(ctx, accepted, purpose_of, base_tools)
+
+
+def design_helpers_iterative(ctx, llm_client, instance_path, target: int = 10,
+                             max_rounds: int | None = None, i_rep: int = 3):
+    """Grow the tool library ONE helper at a time, with the same admission gate
+    as design_helpers. Each round the planner sees the names and purposes (not
+    the code) of every helper admitted so far and proposes the single most
+    useful NEXT tool; it is implemented, validated by a heuristic that must
+    call it, repaired on failure, and discarded if it cannot be made to work —
+    then the loop simply tries again. It stops when `target` validated helpers
+    have accumulated, three consecutive rounds admit nothing, or max_rounds
+    (default 2*target) is reached. Toolkit size is a budget knob of this
+    bounded loop, nothing more."""
+    base_tools = list(ctx.tools_description or [])
+    accepted: dict[str, str] = {}  # name -> validated source
+    purpose_of: dict[str, str] = {}
+    stalled = 0
+    if max_rounds is None:
+        max_rounds = 2 * target
+
+    for rnd in range(1, max_rounds + 1):
+        if len(accepted) >= target:
+            break
+        plan = [(n, p) for n, p in _plan_next_helper(llm_client, ctx, accepted, purpose_of)
+                if n not in accepted]
+        if not plan:
+            stalled += 1
+            logger.info("Helper Designer (iterative): round %d — nothing new proposed", rnd)
+        else:
+            name, purpose = plan[0]
+            logger.info("Helper Designer (iterative): round %d — %d/%d admitted, "
+                        "proposing '%s'", rnd, len(accepted), target, name)
+            purpose_of[name] = purpose
+            ok, src = _admit_helper(ctx, llm_client, instance_path, accepted, purpose_of,
+                                    base_tools, name, purpose, i_rep)
+            if ok:
+                accepted[name] = src
+                stalled = 0
+            else:
+                stalled += 1
+        if stalled >= 3:
+            logger.info("Helper Designer (iterative): stopping — three consecutive "
+                        "rounds without a new admitted helper")
+            break
+
+    logger.info("Helper Designer (iterative): done — %d/%d helpers admitted: %s",
+                len(accepted), target, list(accepted))
+    return _write_back(ctx, accepted, purpose_of, base_tools)

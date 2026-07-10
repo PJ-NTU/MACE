@@ -18,7 +18,7 @@ from .context import ContractContext
 from .input_designer import design_input, adopt_input
 from .output_designer import design_output
 from .tool_designer import design_tools, _placeholder_is_feasible
-from .helper_designer import design_helpers
+from .helper_designer import design_helpers, design_helpers_iterative
 from .assemble import assemble_contract, build_spec
 from .validate import ContractGenerationError, _import_from_source
 
@@ -108,7 +108,8 @@ def _find_instances(instances_dir: Path) -> list[str]:
 
 def generate_contract(slug, nl_description, instances_dir, out_dir, llm_client,
                       example_slug="aircraft_landing", direction="min",
-                      i_rep=3, smoke_time_limit_s=30.0, load_data_code=None):
+                      i_rep=3, smoke_time_limit_s=30.0, load_data_code=None,
+                      target_helpers=0):
     instances_dir = Path(instances_dir)
     instance_paths = _find_instances(instances_dir)
     if not instance_paths:
@@ -140,8 +141,14 @@ def generate_contract(slug, nl_description, instances_dir, out_dir, llm_client,
     design_output(ctx, llm_client, example_slug, i_rep)
     logger.info("Stage Zero: Tool Designer (T core) — is_feasible + objective, validated by a heuristic")
     design_tools(ctx, llm_client, smallest, i_rep=i_rep)
-    logger.info("Stage Zero: Helper Designer — a few helpers, validated by a heuristic that calls them")
-    design_helpers(ctx, llm_client, smallest, i_rep=min(i_rep, 2))
+    if target_helpers and target_helpers > 0:
+        logger.info("Stage Zero: Helper Designer (iterative) — accumulate %d validated "
+                    "helpers by repeated plan/implement/validate/discard rounds", target_helpers)
+        design_helpers_iterative(ctx, llm_client, smallest, target=target_helpers,
+                                 i_rep=min(i_rep, 2))
+    else:
+        logger.info("Stage Zero: Helper Designer — a few helpers, validated by a heuristic that calls them")
+        design_helpers(ctx, llm_client, smallest, i_rep=min(i_rep, 2))
 
     # Final self-check: assemble the full contract and verify it end to end with
     # a DETERMINISTIC witness — the O placeholder make_solution must be accepted

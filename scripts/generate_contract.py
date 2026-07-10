@@ -35,6 +35,11 @@ def main():
     ap.add_argument("--example", default="aircraft_landing")
     ap.add_argument("--direction", choices=["min", "max"], default="min")
     ap.add_argument("--i-rep", type=int, default=3)
+    ap.add_argument("--target-helpers", type=int, default=0,
+                    help="run the iterative Helper Designer until this many validated "
+                         "helpers accumulate (plan/implement/validate/discard rounds). "
+                         "0 (default) keeps the single capped planning pass used by the "
+                         "quick demo in reproduce.ipynb Step 4.")
     ap.add_argument("--load-data", default=None,
                     help="path to a .py file defining the correct load_data() (e.g. an "
                          "existing config.py). When given, the Input Designer adopts it "
@@ -58,7 +63,7 @@ def main():
         slug=args.slug, nl_description=nl, instances_dir=args.instances,
         out_dir=out, llm_client=llm,
         example_slug=args.example, direction=args.direction, i_rep=args.i_rep,
-        load_data_code=load_data_code,
+        load_data_code=load_data_code, target_helpers=args.target_helpers,
     )
     print(f"Contract written to {path}")
     print(f"LLM stats: {llm.stats()}")
