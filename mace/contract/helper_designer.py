@@ -217,8 +217,7 @@ def design_helpers_iterative(ctx, llm_client, instance_path, target: int = 10,
     call it, repaired on failure, and discarded if it cannot be made to work —
     then the loop simply tries again. It stops when `target` validated helpers
     have accumulated, three consecutive rounds admit nothing, or max_rounds
-    (default 2*target) is reached. Toolkit size is a budget knob of this
-    bounded loop, nothing more."""
+    (default 2*target) is reached."""
     base_tools = list(ctx.tools_description or [])
     accepted: dict[str, str] = {}  # name -> validated source
     purpose_of: dict[str, str] = {}
