@@ -39,10 +39,11 @@
     "name": "pr144",
     "n": 144,
     "opt": 58537,
-    "mace": 58535.2,
-    "afl": 58535.2,
-    "mace_gap": -0.0,
-    "afl_gap": -0.0
+    "mace": 58537,
+    "afl": 58537,
+    "mace_gap": 0.0,
+    "afl_gap": 0.0,
+    "note": "tour length computed under TSPLIB's rounded EUC_2D distance, matching the published optimum's convention"
   },
   {
     "name": "kroA150",
