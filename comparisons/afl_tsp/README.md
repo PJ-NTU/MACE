@@ -14,8 +14,9 @@ the known optimum (lower is better).
 ## Result
 
 Averaged over the 16 instances, MACE's gap to the optimum is **1.36%** versus
-AFL's **3.91%**; MACE produces a shorter tour on 15 of the 16 instances, with
-`pr144` a tie (15 W / 1 T / 0 L). Per-instance numbers are in
+AFL's **3.92%** (computed from tour lengths rounded to the nearest integer);
+MACE produces a shorter tour on 15 of the 16 instances, with `pr144` a tie
+(15 W / 1 T / 0 L). Per-instance numbers (unrounded) are in
 [`results.json`](results.json).
 
 ## Contents
