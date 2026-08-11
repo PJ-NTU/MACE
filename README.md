@@ -1,3 +1,21 @@
+> ### ⚠️ This repository has moved
+>
+> The method has been renamed from **MACE** to **LACE**
+> (**L**LM-driven **A**lgorithm **C**onstruction via Complementary **E**volution),
+> following the *Nature Machine Intelligence* author checklist, which flagged a
+> name collision with the equivariant force-field model MACE ([arXiv:2206.07697](https://arxiv.org/abs/2206.07697)).
+>
+> **The maintained repository is now → https://github.com/PJ-NTU/LACE**
+>
+> | Old link | New link |
+> |---|---|
+> | `github.com/PJ-NTU/MACE` | [`github.com/PJ-NTU/LACE`](https://github.com/PJ-NTU/LACE) |
+> | [Supplementary webpage](https://pj-ntu.github.io/MACE/mace_supplementary_information.html) | [New supplementary webpage](https://pj-ntu.github.io/LACE/lace_supplementary_information.html) |
+> | [Colab notebook](https://colab.research.google.com/github/PJ-NTU/MACE/blob/main/notebooks/reproduce.ipynb) | [New Colab notebook](https://colab.research.google.com/github/PJ-NTU/LACE/blob/main/notebooks/reproduce.ipynb) |
+>
+> This repository is kept online, unchanged, so that links cited in the
+> peer-review record continue to resolve.
+
 # MACE — Modular Algorithm Construction and Evolution
 
 Reference implementation of the paper **"Large Language Models Discover
